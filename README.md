@@ -200,7 +200,9 @@ automation:
 
 ## Compatibility
 
-Any network device that supports eSCL (scanning) and/or IPP (printing) should work. Scanner-only and printer-only devices are supported; only the matching entities are created.
+> **Tested only on an HP LaserJet MFP M141w so far.** The integration contains nothing HP-specific — it uses the vendor-neutral eSCL and IPP standards and adapts to what each device reports — so it **should work with other brands too** (Canon, Epson, Brother, Xerox, Kyocera, Ricoh, Lexmark, Samsung, ...). If your device is not listed below, please try it and report the result.
+
+A good sign your device is supported: it can **scan to an iPhone/Mac without drivers (AirScan) or is "Mopria Scan" certified**, and it **prints via AirPrint or Mopria**. Scanner-only and printer-only devices are supported; only the matching entities are created.
 
 Tested on:
 
@@ -208,7 +210,7 @@ Tested on:
 |---|---|---|---|
 | HP LaserJet MFP M141w | ✅ | ✅ | flatbed only, PWG raster (no PDF support) |
 
-Please open an issue or pull request with your results for other models.
+Please [open an issue](https://github.com/lazarvgd/ha-local-printer/issues) with your model and what worked (scan, print, feeder, duplex, toner levels) so it can be added to the table.
 
 Known limitations:
 
