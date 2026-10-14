@@ -15,7 +15,7 @@
   "requirements": [
     "pypdfium2>=4.30.0"
   ],
-  "version": "2.0.1",
+  "version": "2.0.2",
   "zeroconf": [
     "_uscan._tcp.local.",
     "_uscans._tcp.local.",
