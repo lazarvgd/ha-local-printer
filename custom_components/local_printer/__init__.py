@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import voluptuous as vol
 
+from homeassistant.components.file_upload import process_uploaded_file
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
@@ -13,9 +14,10 @@ from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from .const import COLOR_MODES, DOMAIN, FORMATS, PAPER_SIZES, SCAN_AREA_MAX, SIDES, SOURCES
 from .coordinator import PrinterCoordinator
+from .views import ScanFileView
 
-PLATFORMS = [Platform.BUTTON, Platform.NUMBER, Platform.SELECT, Platform.SENSOR]
-SERVICES = ("scan", "print_file", "print_last_scan", "copy")
+PLATFORMS = [Platform.BUTTON, Platform.IMAGE, Platform.NUMBER, Platform.SELECT, Platform.SENSOR]
+SERVICES = ("scan", "print_file", "print_upload", "print_last_scan", "copy", "delete_scan")
 
 type LocalPrinterConfigEntry = ConfigEntry[PrinterCoordinator]
 
@@ -38,6 +40,8 @@ SCAN_SCHEMA = vol.Schema(
     }
 )
 PRINT_FILE_SCHEMA = vol.Schema({**ENTRY_FIELD, vol.Required("file_path"): cv.string, **PRINT_FIELDS})
+PRINT_UPLOAD_SCHEMA = vol.Schema({**ENTRY_FIELD, vol.Required("file"): cv.string, **PRINT_FIELDS})
+DELETE_SCAN_SCHEMA = vol.Schema({**ENTRY_FIELD, vol.Required("filename"): cv.string})
 PRINT_LAST_SCAN_SCHEMA = vol.Schema({**ENTRY_FIELD, **PRINT_FIELDS})
 COPY_SCHEMA = vol.Schema({**ENTRY_FIELD, **COPIES_FIELD, vol.Optional("color"): cv.boolean})
 
@@ -66,8 +70,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: LocalPrinterConfigEntry)
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    entry.async_on_unload(entry.add_update_listener(_async_options_updated))
     _register_services(hass)
+    if not hass.data.get(f"{DOMAIN}_view"):
+        hass.http.register_view(ScanFileView())
+        hass.data[f"{DOMAIN}_view"] = True
     return True
+
+
+async def _async_options_updated(hass: HomeAssistant, entry: LocalPrinterConfigEntry) -> None:
+    """Options are read on use; refresh so a new scan folder shows its files right away."""
+    await entry.runtime_data.async_refresh()
 
 
 def _register_services(hass: HomeAssistant) -> None:
@@ -92,6 +105,22 @@ def _register_services(hass: HomeAssistant) -> None:
             raise HomeAssistantError("Nothing has been scanned yet")
         return await coordinator.async_print_file(coordinator.last_scan["path"], **_print_kwargs(call))
 
+    async def print_upload(call: ServiceCall) -> ServiceResponse:
+        coordinator = _coordinator(hass, call)
+
+        def _read() -> tuple[bytes, str]:
+            with process_uploaded_file(hass, call.data["file"]) as path:
+                return path.read_bytes(), path.name
+
+        try:
+            document, name = await hass.async_add_executor_job(_read)
+        except ValueError as err:
+            raise ServiceValidationError("The uploaded file is no longer available - pick it again") from err
+        return await coordinator.async_print(document, name, **_print_kwargs(call))
+
+    async def delete_scan(call: ServiceCall) -> None:
+        await _coordinator(hass, call).async_delete_scan(call.data["filename"])
+
     async def copy(call: ServiceCall) -> ServiceResponse:
         return await _coordinator(hass, call).async_copy(call.data.get("copies"), call.data.get("color"))
 
@@ -101,6 +130,10 @@ def _register_services(hass: HomeAssistant) -> None:
         DOMAIN, "print_last_scan", print_last_scan, PRINT_LAST_SCAN_SCHEMA, SupportsResponse.OPTIONAL
     )
     hass.services.async_register(DOMAIN, "copy", copy, COPY_SCHEMA, SupportsResponse.OPTIONAL)
+    hass.services.async_register(
+        DOMAIN, "print_upload", print_upload, PRINT_UPLOAD_SCHEMA, SupportsResponse.OPTIONAL
+    )
+    hass.services.async_register(DOMAIN, "delete_scan", delete_scan, DELETE_SCAN_SCHEMA)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: LocalPrinterConfigEntry) -> bool:

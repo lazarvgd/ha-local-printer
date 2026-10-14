@@ -8,6 +8,13 @@ CONF_IPP_URL = "ipp_url"
 CONF_NAME = "name"
 
 SCAN_DIR = "scans"
+SCAN_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png"}
+SCAN_URL_PREFIX = "/api/local_printer/scans"
+SCAN_LIST_LIMIT = 20  # files listed in the "Scans" sensor
+HISTORY_LIMIT = 50  # print jobs kept in the integration's own history
+LINK_VALIDITY_DAYS = 7  # signed links in notifications
+CONF_NOTIFY = "notify_services"
+CONF_SCAN_FOLDER = "scan_folder"
 EVENT_SCAN_DONE = f"{DOMAIN}_scan_done"
 EVENT_PRINT_DONE = f"{DOMAIN}_print_done"
 

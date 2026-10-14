@@ -6,6 +6,8 @@
   ],
   "config_flow": true,
   "dependencies": [
+    "file_upload",
+    "http",
     "media_source"
   ],
   "documentation": "https://github.com/lazarvgd/ha-local-printer",
@@ -15,7 +17,7 @@
   "requirements": [
     "pypdfium2>=4.30.0"
   ],
-  "version": "2.0.3",
+  "version": "2.1.0",
   "zeroconf": [
     "_uscan._tcp.local.",
     "_uscans._tcp.local.",

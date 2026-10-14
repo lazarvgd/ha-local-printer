@@ -1,0 +1,40 @@
+blueprint:
+  name: Print a file
+  description: >-
+    Pick a PDF or image from your phone or computer and print it on a
+    Local Printer & Scanner device. Add the script to a dashboard - tapping it
+    opens a file picker.
+  domain: script
+  source_url: https://github.com/lazarvgd/ha-local-printer/blob/main/blueprints/script/local_printer/print_file.yaml
+  input:
+    printer:
+      name: Printer
+      selector:
+        config_entry:
+          integration: local_printer
+
+fields:
+  file:
+    name: File
+    required: true
+    selector:
+      file:
+        accept: "application/pdf,image/*"
+  copies:
+    name: Copies
+    default: 1
+    selector:
+      number:
+        min: 1
+        max: 99
+        mode: box
+
+sequence:
+  - action: local_printer.print_upload
+    data:
+      config_entry_id: !input printer
+      file: "{{ file }}"
+      copies: "{{ copies | int(1) }}"
+
+mode: single
+icon: mdi:printer

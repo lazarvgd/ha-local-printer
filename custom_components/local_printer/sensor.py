@@ -13,6 +13,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import LocalPrinterConfigEntry
+from .const import SCAN_LIST_LIMIT
 from .coordinator import PrinterCoordinator
 from .entity import LocalPrinterEntity
 
@@ -25,6 +26,15 @@ def _enum(value: str | None, options: list[str]) -> str | None:
         return None
     value = value.lower()
     return value if value in options else "unknown"
+
+
+def _scan_files(c: PrinterCoordinator) -> dict[str, Any]:
+    files = [{**f, "url": c.scan_url(f["name"])} for f in c.data.scans[:SCAN_LIST_LIMIT]]
+    return {"files": files}
+
+
+def _print_history(c: PrinterCoordinator) -> dict[str, Any]:
+    return {"jobs": c.history, "printer_jobs": c.data.printer_jobs}
 
 
 def _adf_state(value: str | None) -> str | None:
@@ -69,6 +79,21 @@ SENSORS = (
         available=lambda c: c.can_scan,
     ),
     LocalPrinterSensorDescription(
+        key="scans",
+        icon="mdi:file-document-multiple",
+        state_class=SensorStateClass.MEASUREMENT,
+        value=lambda c: len(c.data.scans),
+        attributes=_scan_files,
+        available=lambda c: c.can_scan,
+    ),
+    LocalPrinterSensorDescription(
+        key="print_history",
+        icon="mdi:history",
+        value=lambda c: len(c.history),
+        attributes=_print_history,
+        available=lambda c: c.can_print,
+    ),
+    LocalPrinterSensorDescription(
         key="last_print",
         entity_category=EntityCategory.DIAGNOSTIC,
         value=lambda c: c.last_print["filename"] if c.last_print else None,
@@ -91,6 +116,8 @@ async def async_setup_entry(
 
 class LocalPrinterSensor(LocalPrinterEntity, SensorEntity):
     entity_description: LocalPrinterSensorDescription
+    # Lists change often and can be large - keep them out of the recorder database
+    _unrecorded_attributes = frozenset({"files", "jobs", "printer_jobs", "paths", "url"})
 
     def __init__(self, coordinator: PrinterCoordinator, description: LocalPrinterSensorDescription) -> None:
         super().__init__(coordinator, description.key)

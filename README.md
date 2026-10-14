@@ -2,6 +2,7 @@
 
 [![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=lazarvgd&repository=ha-local-printer&category=integration)
 [![Add integration](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=local_printer)
+[![Import the "Print a file" blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/lazarvgd/ha-local-printer/blob/main/blueprints/script/local_printer/print_file.yaml)
 
 Scan, print, copy and monitor network printers and multifunction devices **entirely on your local network** — no vendor app, no cloud account, no internet connection required.
 
@@ -27,11 +28,14 @@ The printer, it turns out, speaks open, local protocols (eSCL for scanning, IPP 
 ## Features
 
 - **Buttons:** Scan, Copy (scan + print), Print last scan, Identify printer (beep/blink)
+- **Last scan preview** image on the device page and in dashboards
+- **Phone notification** when a scan is ready, with a link that opens the PDF — no YAML, pick your phone in the integration options
+- **Scans** sensor listing stored scans with links, **Print history** sensor (jobs sent from Home Assistant, kept across restarts, plus the printer's own job list from any device)
+- **Print any file from your phone or computer** with the bundled blueprint: tap it on a dashboard, pick a PDF or image, done
 - **Sensors:** printer state with reasons, scanner state, document feeder state, one sensor per toner/ink cartridge, last scan, last print
 - **Settings:** scan source, color mode, resolution, file format (PDF/JPG/PNG), scan area, paper size, duplex printing, color printing, number of copies — options are built from what your device actually reports
-- **Services** for automations: `local_printer.scan`, `local_printer.print_file`, `local_printer.print_last_scan`, `local_printer.copy` (all return a response)
+- **Services** for automations: `scan`, `copy`, `print_file`, `print_upload`, `print_last_scan`, `delete_scan` (all under `local_printer.`, most return a response)
 - **Events:** `local_printer_scan_done`, `local_printer_print_done`
-- Scans are saved to **Media → scans**, so you can open and download them from the Home Assistant app
 - Multi-page scans from a document feeder are merged into one PDF
 - If the scanner cannot produce PDF, the integration builds the PDF from JPEG pages
 - If the printer cannot print PDF, the integration renders it to PWG or Apple raster itself
@@ -60,9 +64,90 @@ To add a device manually: **Add integration → Local Printer & Scanner** and en
 
 Give the printer a fixed IP address (DHCP reservation) on your router for the most reliable setup.
 
+## Using it
+
+### Where are my scans?
+
+Scans are stored on the Home Assistant host in the media folder, sub-folder `scans` — on Home Assistant OS that is **`/media/scans`**, file names look like `scan_2026-10-14_12-05-31.pdf`.
+
+To store scans somewhere else — for example on a **NAS or a shared folder on your computer** — first connect it under **Settings → System → Storage → Add network storage** (SMB/NFS, usage *Media*), then set **Folder for scans** under **Settings → Devices & services → Local Printer & Scanner → Configure** (for example `/media/nas/scans`). The folder is checked for write access when you save.
+
+Home Assistant's own media browser only shows images, video and audio, so **PDF scans do not appear in Media → My media**. Open them instead:
+
+- from the **phone notification** (see below) — tap it to open the PDF,
+- from the **Scans** sensor or the dashboard card below — every file has a link,
+- or pick **JPG** as scan format if you prefer to browse scans in the media browser.
+
+Links are signed: they open in any browser without logging in again while they are valid (1 day on the dashboard, 7 days in notifications). Delete old scans with the `local_printer.delete_scan` action.
+
+### Get a notification when a scan is ready
+
+In the same **Configure** dialog pick your phone(s). From now on every scan sends "Scan ready — tap to open".
+
+### Print a file from your phone or computer
+
+1. Click **Import blueprint** at the top of this page and create a script from it (choose your printer).
+2. Add the script to a dashboard. Tapping it opens a form with a **file picker** — choose a PDF or image, set copies, **Run**.
+
+The same is available as the `local_printer.print_upload` action. Printing from the phone's own share sheet (AirPrint / Mopria) also keeps working as before — this is for printing through Home Assistant, e.g. when you are away.
+
+### Dashboard card
+
+Replace `my_printer` with your device's entity prefix (see the device page):
+
+```yaml
+type: vertical-stack
+cards:
+  - type: entities
+    entities:
+      - sensor.my_printer_printer
+      - sensor.my_printer_scanner
+      - sensor.my_printer_black_cartridge
+  - type: grid
+    columns: 3
+    square: false
+    cards:
+      - type: button
+        entity: button.my_printer_scan
+        name: Scan
+        tap_action:
+          action: perform-action
+          perform_action: button.press
+          target:
+            entity_id: button.my_printer_scan
+      - type: button
+        entity: button.my_printer_copy
+        name: Copy
+        tap_action:
+          action: perform-action
+          perform_action: button.press
+          target:
+            entity_id: button.my_printer_copy
+      - type: button
+        entity: script.print_a_file
+        name: Print a file
+        tap_action:
+          action: more-info
+  - type: picture-entity
+    entity: image.my_printer_last_scan_preview
+    show_state: false
+  - type: markdown
+    title: Scans
+    content: >-
+      {% for f in state_attr('sensor.my_printer_scans', 'files') or [] %}
+      <a href="{{ f.url }}" target="_blank">{{ f.name }}</a> · {{ f.size_kb }} KB<br>
+      {% else %}No scans yet.{% endfor %}
+  - type: markdown
+    title: Print history
+    content: >-
+      {% for j in (state_attr('sensor.my_printer_print_history', 'jobs') or [])[:10] %}
+      {{ j.filename }} · {{ j.copies }}× · {{ as_timestamp(j.time) | timestamp_custom('%d.%m. %H:%M') }}<br>
+      {% else %}Nothing printed from Home Assistant yet.{% endfor %}
+```
+
 ## Example automations
 
-Notify your phone when a scan is ready:
+Notify your phone when a scan is ready (if you prefer an automation over the built-in option):
 
 ```yaml
 automation:
@@ -75,6 +160,9 @@ automation:
         data:
           title: "Scan ready"
           message: "{{ trigger.event.data.filename }} ({{ trigger.event.data.size_kb }} KB)"
+          data:
+            clickAction: "{{ trigger.event.data.url }}"
+            url: "{{ trigger.event.data.url }}"
 ```
 
 Scan with explicit settings and use the result:
@@ -137,8 +225,9 @@ custom_components/local_printer/
 ├── ipp.py          minimal IPP encoder/decoder: attributes, Print-Job, Identify-Printer
 ├── raster.py       PDF/image → PWG raster / Apple URF, PDF merging
 ├── planner.py      pure decision logic: which format to send, which scan settings to use
-├── coordinator.py  polling + scan/print/copy jobs
-└── config_flow.py, sensor.py, button.py, select.py, number.py   Home Assistant glue
+├── coordinator.py  polling, scan/print/copy jobs, scan list, print history, notifications
+├── views.py        authenticated endpoint serving stored scans (/api/local_printer/scans/...)
+└── config_flow.py, sensor.py, button.py, select.py, number.py, image.py   Home Assistant glue
 ```
 
 `escl.py`, `ipp.py`, `raster.py`, `planner.py` and `discovery.py` do not depend on Home Assistant and are covered by unit tests.
@@ -146,9 +235,15 @@ custom_components/local_printer/
 ## Development
 
 ```bash
+# unit tests of the protocol/raster/planner modules
 python3 -m venv .venv
 .venv/bin/pip install -r requirements_test.txt
 .venv/bin/python -m pytest
+
+# end-to-end tests inside a real Home Assistant instance (fake printer)
+python3 -m venv .venv-ha
+.venv-ha/bin/pip install pytest-homeassistant-custom-component pypdfium2
+.venv-ha/bin/python -m pytest -c tests_ha/pytest.ini --rootdir . tests_ha
 ```
 
 ## License

@@ -6,7 +6,14 @@ from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
+from homeassistant.core import callback
+from homeassistant.helpers.selector import (
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
+    TextSelector,
+)
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 try:
@@ -14,12 +21,18 @@ try:
 except ImportError:  # Home Assistant < 2025.1
     from homeassistant.components.zeroconf import ZeroconfServiceInfo
 
-from .const import CONF_ESCL_URL, CONF_HOST, CONF_IPP_URL, CONF_NAME, DOMAIN
+from .const import CONF_ESCL_URL, CONF_HOST, CONF_IPP_URL, CONF_NAME, CONF_NOTIFY, CONF_SCAN_FOLDER, DOMAIN
+from .coordinator import check_scan_folder, default_scan_dir
 from .discovery import ProbeResult, build_url, probe_host
 
 
 class LocalPrinterConfigFlow(ConfigFlow, domain=DOMAIN):
     VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
+        return LocalPrinterOptionsFlow()
 
     def __init__(self) -> None:
         self._host: str | None = None
@@ -106,4 +119,35 @@ class LocalPrinterConfigFlow(ConfigFlow, domain=DOMAIN):
                 "scanner": "yes" if self._probe.escl_url else "no",
                 "printer": "yes" if self._probe.ipp_url else "no",
             },
+        )
+
+
+class LocalPrinterOptionsFlow(OptionsFlow):
+    """Scan folder and where the "scan ready" notification goes."""
+
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+        default_folder = str(default_scan_dir(self.hass))
+        if user_input is not None:
+            folder = (user_input.get(CONF_SCAN_FOLDER) or default_folder).strip().rstrip("/") or default_folder
+            if error := await self.hass.async_add_executor_job(check_scan_folder, self.hass, folder):
+                errors[CONF_SCAN_FOLDER] = error
+            else:
+                return self.async_create_entry(data={**user_input, CONF_SCAN_FOLDER: folder})
+        services = sorted(s for s in self.hass.services.async_services_for_domain("notify") if s != "send_message")
+        targets = ["persistent_notification", *services]
+        current = [t for t in self.config_entry.options.get(CONF_NOTIFY, []) if t in targets]
+        folder = self.config_entry.options.get(CONF_SCAN_FOLDER) or default_folder
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_SCAN_FOLDER, default=folder): TextSelector(),
+                    vol.Optional(CONF_NOTIFY, default=current): SelectSelector(
+                        SelectSelectorConfig(options=targets, multiple=True, mode=SelectSelectorMode.LIST)
+                    ),
+                }
+            ),
+            errors=errors,
+            description_placeholders={"default_folder": default_folder},
         )

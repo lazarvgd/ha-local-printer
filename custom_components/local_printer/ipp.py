@@ -19,6 +19,7 @@ TAG_END = 0x03
 TAG_INTEGER = 0x21
 TAG_BOOLEAN = 0x22
 TAG_ENUM = 0x23
+TAG_DATETIME = 0x31
 TAG_RANGE = 0x33
 TAG_RESOLUTION = 0x32
 TAG_NAME = 0x42
@@ -30,10 +31,31 @@ TAG_MIME = 0x49
 
 OP_PRINT_JOB = 0x0002
 OP_VALIDATE_JOB = 0x0004
+OP_GET_JOBS = 0x000A
 OP_GET_PRINTER_ATTRIBUTES = 0x000B
 OP_IDENTIFY_PRINTER = 0x003C
 
 PRINTER_STATES = {3: "idle", 4: "processing", 5: "stopped"}
+JOB_STATES = {
+    3: "pending",
+    4: "pending-held",
+    5: "processing",
+    6: "processing-stopped",
+    7: "canceled",
+    8: "aborted",
+    9: "completed",
+}
+TAG_JOB_GROUP = 0x02
+
+JOB_ATTRIBUTES = [
+    "job-id",
+    "job-name",
+    "job-state",
+    "job-originating-user-name",
+    "job-impressions-completed",
+    "date-time-at-creation",
+    "date-time-at-completed",
+]
 
 STATUS_ATTRIBUTES = [
     "printer-state",
@@ -142,16 +164,21 @@ def _decode(tag: int, raw: bytes) -> Any:
         return struct.unpack(">iib", raw)  # (x, y, units)
     if tag == TAG_RANGE and len(raw) == 8:
         return struct.unpack(">ii", raw)
+    if tag == TAG_DATETIME and len(raw) == 11:
+        # RFC 2579 DateAndTime: year, month, day, hour, min, sec, deci-sec, UTC sign, hours, minutes
+        year, month, day, hour, minute, sec, _, sign, off_h, off_m = struct.unpack(">HBBBBBBcBB", raw)
+        return f"{year:04d}-{month:02d}-{day:02d}T{hour:02d}:{minute:02d}:{sec:02d}{sign.decode()}{off_h:02d}:{off_m:02d}"
     if 0x40 <= tag <= 0x4F:
         return raw.decode(errors="replace")
     return raw
 
 
-def parse_response(data: bytes) -> tuple[int, dict[str, Any]]:
-    """Return (status-code, attributes). Multi-valued attributes become lists."""
+def parse_groups(data: bytes) -> tuple[int, list[tuple[int, dict[str, Any]]]]:
+    """Return (status-code, [(group tag, attributes)]). Multi-valued attributes become lists."""
     if len(data) < 8:
         raise IppError("IPP response too short")
     status = struct.unpack(">h", data[2:4])[0]
+    groups: list[tuple[int, dict[str, Any]]] = []
     attrs: dict[str, Any] = {}
     pos, last, depth = 8, None, 0
     try:
@@ -161,6 +188,8 @@ def parse_response(data: bytes) -> tuple[int, dict[str, Any]]:
             if tag == TAG_END and depth == 0:
                 break
             if tag < 0x10:  # new attribute group delimiter
+                attrs, last = {}, None
+                groups.append((tag, attrs))
                 continue
             name_len = struct.unpack(">h", data[pos : pos + 2])[0]
             pos += 2
@@ -188,7 +217,16 @@ def parse_response(data: bytes) -> tuple[int, dict[str, Any]]:
                 attrs[name] = value
     except struct.error as err:
         raise IppError(f"Invalid IPP response: {err}") from err
-    return status, attrs
+    return status, groups
+
+
+def parse_response(data: bytes) -> tuple[int, dict[str, Any]]:
+    """Return (status-code, attributes of all groups merged)."""
+    status, groups = parse_groups(data)
+    merged: dict[str, Any] = {}
+    for _, attrs in groups:
+        merged.update(attrs)
+    return status, merged
 
 
 class IppClient:
@@ -213,6 +251,15 @@ class IppClient:
         )
 
     async def _request(self, payload: bytes, timeout: int = 15) -> dict[str, Any]:
+        _, groups = await self._request_groups(payload, timeout)
+        merged: dict[str, Any] = {}
+        for _, attrs in groups:
+            merged.update(attrs)
+        return merged
+
+    async def _request_groups(
+        self, payload: bytes, timeout: int = 15
+    ) -> tuple[int, list[tuple[int, dict[str, Any]]]]:
         async with self._session.post(
             self.url,
             data=payload,
@@ -222,11 +269,11 @@ class IppClient:
             if resp.status != 200:
                 raise IppError(f"HTTP {resp.status}")
             body = await resp.read()
-        status, attrs = parse_response(body)
+        status, groups = parse_groups(body)
         if status >= 0x0100:  # everything below 0x0100 is successful-*
-            message = attrs.get("status-message") or ""
+            message = next((a.get("status-message") for _, a in groups if a.get("status-message")), "")
             raise IppError(f"Printer returned error 0x{status:04x} {message}".strip())
-        return attrs
+        return status, groups
 
     async def _get_attributes(self, names: list[str]) -> dict[str, Any]:
         payload = self._header(OP_GET_PRINTER_ATTRIBUTES)
@@ -240,6 +287,34 @@ class IppClient:
 
     async def status(self) -> dict[str, Any]:
         return await self._get_attributes(STATUS_ATTRIBUTES)
+
+    async def jobs(self, which: str = "completed", limit: int = 20) -> list[dict[str, Any]]:
+        """Jobs known to the printer (from any sender), newest first."""
+        payload = (
+            self._header(OP_GET_JOBS)
+            + _attr(TAG_INTEGER, "limit", limit)
+            + _attr(TAG_KEYWORD, "which-jobs", which)
+            + _attr(TAG_KEYWORD, "requested-attributes", JOB_ATTRIBUTES[0])
+        )
+        for name in JOB_ATTRIBUTES[1:]:
+            payload += _additional(TAG_KEYWORD, name)
+        _, groups = await self._request_groups(payload + bytes([TAG_END]))
+        jobs = []
+        for tag, attrs in groups:
+            if tag != TAG_JOB_GROUP or "job-id" not in attrs:
+                continue
+            jobs.append(
+                {
+                    "job_id": attrs.get("job-id"),
+                    "name": attrs.get("job-name"),
+                    "state": JOB_STATES.get(attrs.get("job-state"), "unknown"),
+                    "user": attrs.get("job-originating-user-name"),
+                    "pages": attrs.get("job-impressions-completed"),
+                    "created": attrs.get("date-time-at-creation"),
+                    "completed": attrs.get("date-time-at-completed"),
+                }
+            )
+        return sorted(jobs, key=lambda j: j["job_id"] or 0, reverse=True)
 
     async def identify(self) -> None:
         await self._request(self._header(OP_IDENTIFY_PRINTER) + bytes([TAG_END]))

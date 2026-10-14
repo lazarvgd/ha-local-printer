@@ -200,3 +200,24 @@ def merge_pdfs(documents: list[bytes]) -> bytes:
         for src in sources:
             src.close()
         merged.close()
+
+
+def render_preview(data: bytes, max_size: int = 1000) -> bytes:
+    """First page of a PDF or image -> PNG thumbnail no larger than `max_size` pixels."""
+    if is_pdf(data):
+        import pypdfium2 as pdfium
+
+        pdf = pdfium.PdfDocument(data)
+        try:
+            page = pdf[0]
+            width, height = page.get_size()  # points
+            img = page.render(scale=max_size / max(width, height)).to_pil()
+        finally:
+            pdf.close()
+    else:
+        with Image.open(io.BytesIO(data)) as src:
+            img = src.convert("RGB")
+    img.thumbnail((max_size, max_size), Image.LANCZOS)
+    buf = io.BytesIO()
+    img.convert("RGB").save(buf, "PNG", optimize=True)
+    return buf.getvalue()

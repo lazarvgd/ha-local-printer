@@ -70,6 +70,34 @@ print_file:
       selector:
         boolean:
 
+print_upload:
+  name: Print uploaded file
+  description: Pick a PDF or image from your phone or computer and print it.
+  fields:
+    config_entry_id: *entry
+    file:
+      name: File
+      required: true
+      selector:
+        file:
+          accept: "application/pdf,image/*"
+    copies: *copies
+    paper: *paper
+    sides: *sides
+    color: *color
+
+delete_scan:
+  name: Delete scan
+  description: Delete a stored scan file (see the Scans sensor for file names).
+  fields:
+    config_entry_id: *entry
+    filename:
+      name: File name
+      required: true
+      example: scan_2026-10-14_12-05-31.pdf
+      selector:
+        text:
+
 print_last_scan:
   name: Print last scan
   fields:

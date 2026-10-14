@@ -17,6 +17,16 @@ jobs:
       - run: pip install -r requirements_test.txt
       - run: python -m pytest -q
 
+  tests-ha:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: pip install pytest-homeassistant-custom-component pypdfium2
+      - run: python -m pytest -c tests_ha/pytest.ini --rootdir . tests_ha -q
+
   hassfest:
     runs-on: ubuntu-latest
     steps:

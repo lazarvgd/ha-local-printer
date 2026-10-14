@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import datetime, timedelta
 import logging
 from pathlib import Path
 from typing import Any
@@ -14,13 +14,18 @@ import aiohttp
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.components.http.auth import async_sign_path
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.network import NoURLAvailableError, get_url
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
 from . import raster
 from .const import (
     COLOR_MODES,
+    CONF_NOTIFY,
+    CONF_SCAN_FOLDER,
     CONF_ESCL_URL,
     CONF_HOST,
     CONF_IPP_URL,
@@ -28,8 +33,13 @@ from .const import (
     DOMAIN,
     EVENT_PRINT_DONE,
     EVENT_SCAN_DONE,
+    HISTORY_LIMIT,
     LETTER_COUNTRIES,
+    LINK_VALIDITY_DAYS,
     SCAN_DIR,
+    SCAN_EXTENSIONS,
+    SCAN_LIST_LIMIT,
+    SCAN_URL_PREFIX,
     UPDATE_INTERVAL,
 )
 from .discovery import replace_host
@@ -58,6 +68,8 @@ class DeviceData:
     state_reasons: list[str] = field(default_factory=list)
     state_message: str | None = None
     markers: list[Marker] = field(default_factory=list)
+    printer_jobs: list[dict[str, Any]] = field(default_factory=list)  # job history kept by the printer
+    scans: list[dict[str, Any]] = field(default_factory=list)  # stored scan files, newest first
 
 
 def parse_markers(attrs: dict[str, Any]) -> list[Marker]:
@@ -75,6 +87,29 @@ def parse_markers(attrs: dict[str, Any]) -> list[Marker]:
         )
         for i, name in enumerate(names)
     ]
+
+
+def default_scan_dir(hass: HomeAssistant) -> Path:
+    media = hass.config.media_dirs.get("local") or hass.config.path("media")
+    return Path(media) / SCAN_DIR
+
+
+def check_scan_folder(hass: HomeAssistant, folder: str) -> str | None:
+    """Blocking: return an error key if scans cannot be stored in `folder`, else None."""
+    path = Path(folder)
+    if not path.is_absolute():
+        return "folder_not_absolute"
+    in_media = any(path.is_relative_to(Path(d)) for d in hass.config.media_dirs.values())
+    if not in_media and not hass.config.is_allowed_path(str(path)):
+        return "folder_not_allowed"
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        probe = path / ".local_printer_write_test"
+        probe.write_bytes(b"")
+        probe.unlink()
+    except OSError:
+        return "folder_not_writable"
+    return None
 
 
 def _prepare(document: bytes, plan: PrintPlan) -> tuple[bytes, int | None]:
@@ -134,6 +169,9 @@ class PrinterCoordinator(DataUpdateCoordinator[DeviceData]):
 
         self.last_scan: dict[str, Any] | None = None
         self.last_print: dict[str, Any] | None = None
+        self.history: list[dict[str, Any]] = []  # jobs sent by this integration, newest first
+        self._history_store: Store[list[dict[str, Any]]] = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.history")
+        self._preview: tuple[str, bytes] | None = None  # (file name, PNG) cache for the image entity
         self._print_lock = asyncio.Lock()
 
     def _session(self, url: str) -> aiohttp.ClientSession:
@@ -142,8 +180,10 @@ class PrinterCoordinator(DataUpdateCoordinator[DeviceData]):
 
     @property
     def scan_dir(self) -> Path:
-        media = self.hass.config.media_dirs.get("local") or self.hass.config.path("media")
-        return Path(media) / SCAN_DIR
+        """Folder for scans: the one chosen in the options, or <media>/scans."""
+        if folder := self.config_entry.options.get(CONF_SCAN_FOLDER):
+            return Path(folder)
+        return default_scan_dir(self.hass)
 
     @property
     def regional_paper(self) -> str:
@@ -159,6 +199,7 @@ class PrinterCoordinator(DataUpdateCoordinator[DeviceData]):
 
     async def async_load_capabilities(self) -> None:
         """Run once at setup: find out what the device can do."""
+        self.history = await self._history_store.async_load() or []
         if self.escl:
             try:
                 self.scanner_caps = await self.escl.capabilities()
@@ -188,6 +229,11 @@ class PrinterCoordinator(DataUpdateCoordinator[DeviceData]):
                 ok = True
             except (IppError, *NETWORK_ERRORS) as err:
                 _LOGGER.debug("IPP status failed: %s", err)
+            if ok:
+                try:
+                    data.printer_jobs = await self.ipp.jobs()
+                except (IppError, *NETWORK_ERRORS) as err:
+                    _LOGGER.debug("IPP Get-Jobs failed: %s", err)
         if self.escl:
             if self.escl.busy:
                 data.scanner_state = "Processing"  # do not poll the scanner while it is scanning
@@ -200,7 +246,87 @@ class PrinterCoordinator(DataUpdateCoordinator[DeviceData]):
                     _LOGGER.debug("eSCL status failed: %s", err)
         if not ok:
             raise UpdateFailed("Device is not reachable")
+        if self.can_scan:
+            data.scans = await self.hass.async_add_executor_job(self._list_scans)
         return data
+
+    # ---- Stored scans ----
+
+    def _list_scans(self) -> list[dict[str, Any]]:
+        """Blocking: stored scan files, newest first."""
+        if not self.scan_dir.is_dir():
+            return []
+        files = [p for p in self.scan_dir.iterdir() if p.is_file() and p.suffix.lower() in SCAN_EXTENSIONS]
+        files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        return [
+            {
+                "name": p.name,
+                "size_kb": round(p.stat().st_size / 1024),
+                "time": datetime.fromtimestamp(p.stat().st_mtime, dt_util.get_default_time_zone()).isoformat(),
+            }
+            for p in files
+        ]
+
+    def scan_url(self, filename: str, absolute: bool = False, days: int = 1) -> str:
+        """Signed link that opens a stored scan without extra login while it is valid."""
+        entry_id = self.config_entry.entry_id
+        path = async_sign_path(self.hass, f"{SCAN_URL_PREFIX}/{entry_id}/{filename}", timedelta(days=days))
+        if absolute:
+            try:
+                return get_url(self.hass, prefer_external=True) + path
+            except NoURLAvailableError:
+                pass
+        return path
+
+    async def async_preview(self) -> bytes | None:
+        """PNG preview of the newest scan (cached)."""
+        scans = self.data.scans if self.data else []
+        if not scans:
+            return None
+        name = scans[0]["name"]
+        if self._preview and self._preview[0] == name:
+            return self._preview[1]
+        path = self.scan_dir / name
+        try:
+            png = await self.hass.async_add_executor_job(lambda: raster.render_preview(path.read_bytes()))
+        except Exception as err:  # noqa: BLE001 - PIL/pdfium raise many exception types
+            _LOGGER.warning("Could not render a preview of %s: %s", name, err)
+            return None
+        self._preview = (name, png)
+        return png
+
+    async def async_delete_scan(self, filename: str) -> None:
+        if Path(filename).name != filename or Path(filename).suffix.lower() not in SCAN_EXTENSIONS:
+            raise HomeAssistantError(f"Not a scan file name: {filename}")
+        path = self.scan_dir / filename
+        try:
+            await self.hass.async_add_executor_job(path.unlink)
+        except FileNotFoundError as err:
+            raise HomeAssistantError(f"Scan {filename} does not exist") from err
+        await self.async_refresh()  # update the scan list right away
+
+    async def _notify_scan(self, scan: dict[str, Any]) -> None:
+        """Send the "scan ready" notification to the phones chosen in the options."""
+        targets = self.config_entry.options.get(CONF_NOTIFY, [])
+        if not targets:
+            return
+        url = self.scan_url(scan["filename"], absolute=True, days=LINK_VALIDITY_DAYS)
+        message = f"{scan['filename']} ({scan['size_kb']} KB) - tap to open"
+        for target in targets:
+            data: dict[str, Any] = {"title": "Scan ready", "message": message}
+            if target != "persistent_notification":
+                # Android uses clickAction, iOS uses url; both get an "Open" action button
+                data["data"] = {
+                    "clickAction": url,
+                    "url": url,
+                    "actions": [{"action": "URI", "title": "Open", "uri": url}],
+                }
+            else:
+                data["message"] = f"[{scan['filename']}]({url}) ({scan['size_kb']} KB)"
+            try:
+                await self.hass.services.async_call("notify", target, data, blocking=False)
+            except HomeAssistantError as err:
+                _LOGGER.warning("Could not send the scan notification via notify.%s: %s", target, err)
 
     # ---- Scanning ----
 
@@ -277,10 +403,11 @@ class PrinterCoordinator(DataUpdateCoordinator[DeviceData]):
             "resolution": plan.dpi,
             "format": plan.extension,
             "entry_id": self.config_entry.entry_id,
+            "url": self.scan_url(names[0], absolute=True, days=LINK_VALIDITY_DAYS),
         }
         self.hass.bus.async_fire(EVENT_SCAN_DONE, self.last_scan)
-        self.async_update_listeners()
-        await self.async_request_refresh()
+        await self._notify_scan(self.last_scan)
+        await self.async_refresh()  # new file appears in the Scans sensor and preview right away
         return self.last_scan
 
     # ---- Printing ----
@@ -341,6 +468,8 @@ class PrinterCoordinator(DataUpdateCoordinator[DeviceData]):
             "time": dt_util.now().isoformat(),
             "entry_id": self.config_entry.entry_id,
         }
+        self.history = [self.last_print, *self.history][:HISTORY_LIMIT]
+        await self._history_store.async_save(self.history)
         self.hass.bus.async_fire(EVENT_PRINT_DONE, self.last_print)
         self.async_update_listeners()
         await self.async_request_refresh()

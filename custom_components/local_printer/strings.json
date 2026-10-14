@@ -55,6 +55,12 @@
       },
       "last_print": {
         "name": "Last print"
+      },
+      "scans": {
+        "name": "Scans"
+      },
+      "print_history": {
+        "name": "Print history"
       }
     },
     "button": {
@@ -137,6 +143,28 @@
           "color": "Color"
         }
       }
+    },
+    "image": {
+      "last_scan_preview": {
+        "name": "Last scan preview"
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Scans and notifications",
+        "description": "Scans are stored in {default_folder} by default. To store them on a NAS or shared folder, first add it under Settings → System → Storage → Add network storage, then enter its path here (for example /media/nas/scans).",
+        "data": {
+          "scan_folder": "Folder for scans",
+          "notify_services": "Send \"scan ready\" notifications to"
+        }
+      }
+    },
+    "error": {
+      "folder_not_absolute": "Enter a full path starting with /, for example /media/scans.",
+      "folder_not_allowed": "Home Assistant is not allowed to use this folder. Use a folder under /media (or a network storage mounted there), or add it to allowlist_external_dirs.",
+      "folder_not_writable": "The folder cannot be created or written to."
     }
   }
 }
