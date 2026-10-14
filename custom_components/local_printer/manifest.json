@@ -1,6 +1,9 @@
 {
   "domain": "local_printer",
   "name": "Local Printer & Scanner (eSCL/IPP)",
+  "after_dependencies": [
+    "zeroconf"
+  ],
   "codeowners": [
     "@lazarvgd"
   ],
@@ -17,7 +20,7 @@
   "requirements": [
     "pypdfium2>=4.30.0"
   ],
-  "version": "2.1.0",
+  "version": "2.1.1",
   "zeroconf": [
     "_uscan._tcp.local.",
     "_uscans._tcp.local.",

@@ -4,14 +4,21 @@
     "step": {
       "user": {
         "title": "Local Printer & Scanner",
-        "description": "Enter the device address. Tip: give it a fixed IP (DHCP reservation) on your router.",
+        "description": "These printers and scanners were found on your network. Pick one, or enter an address manually.",
         "data": {
-          "host": "Printer IP address or hostname"
+          "host": "Device"
         }
       },
       "zeroconf_confirm": {
         "title": "Local Printer & Scanner",
         "description": "Add {name}? Scanner: {scanner}, printer: {printer}."
+      },
+      "manual": {
+        "title": "Local Printer & Scanner",
+        "description": "Enter the device address. Tip: give it a fixed IP (DHCP reservation) on your router.",
+        "data": {
+          "host": "Printer IP address or hostname"
+        }
       }
     },
     "error": {

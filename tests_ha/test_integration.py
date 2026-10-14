@@ -173,3 +173,45 @@ async def test_options_flow_rejects_bad_folders(hass: HomeAssistant, tmp_path, d
         result = await hass.config_entries.options.async_init(entry.entry_id)
         result = await hass.config_entries.options.async_configure(result["flow_id"], {"scan_folder": folder})
         assert result["type"] == "form" and result["errors"] == {"scan_folder": error}
+
+
+async def test_user_flow_offers_discovered_devices(hass: HomeAssistant, device):
+    from unittest.mock import AsyncMock, patch
+
+    from custom_components.local_printer.discovery import ProbeResult
+
+    probe = ProbeResult(
+        escl_url=f"http://{HOST}:8080/eSCL",
+        ipp_url=f"http://{HOST}:631/ipp/print",
+        scanner=None,
+        printer=None,
+    )
+    with (
+        patch(
+            "custom_components.local_printer.config_flow.async_find_devices",
+            AsyncMock(return_value={HOST: f"HP LaserJet MFP M139-M142 ({HOST})"}),
+        ),
+        patch("custom_components.local_printer.config_flow.probe_host", AsyncMock(return_value=probe)),
+    ):
+        result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
+        assert result["step_id"] == "user"
+        options = result["data_schema"].schema["host"].config["options"]
+        assert options[0] == {"value": HOST, "label": f"HP LaserJet MFP M139-M142 ({HOST})"}
+        assert options[-1]["value"] == "manual"
+
+        # Picking the manual option shows the address form
+        manual = await hass.config_entries.flow.async_configure(result["flow_id"], {"host": "manual"})
+        assert manual["step_id"] == "manual"
+
+        result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {"host": HOST})
+        assert result["type"] == "create_entry"
+        assert result["data"]["escl_url"] == f"http://{HOST}:8080/eSCL"
+
+
+async def test_user_flow_without_discovery_asks_for_address(hass: HomeAssistant):
+    from unittest.mock import AsyncMock, patch
+
+    with patch("custom_components.local_printer.config_flow.async_find_devices", AsyncMock(return_value={})):
+        result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
+    assert result["step_id"] == "manual"

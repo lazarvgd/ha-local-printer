@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import voluptuous as vol
+from zeroconf import IPVersion, ServiceStateChange
+from zeroconf.asyncio import AsyncServiceBrowser, AsyncServiceInfo
+
+from homeassistant.components import zeroconf
 
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.core import callback
@@ -24,6 +29,39 @@ except ImportError:  # Home Assistant < 2025.1
 from .const import CONF_ESCL_URL, CONF_HOST, CONF_IPP_URL, CONF_NAME, CONF_NOTIFY, CONF_SCAN_FOLDER, DOMAIN
 from .coordinator import check_scan_folder, default_scan_dir
 from .discovery import ProbeResult, build_url, probe_host
+
+
+SERVICE_TYPES = ["_uscan._tcp.local.", "_uscans._tcp.local.", "_ipp._tcp.local.", "_ipps._tcp.local."]
+MANUAL = "manual"
+
+
+async def async_find_devices(hass, timeout: float = 3.0) -> dict[str, str]:
+    """Browse the network for scanners/printers. Return {ip: "Model (ip)"}."""
+    aiozc = await zeroconf.async_get_async_instance(hass)
+    found: set[tuple[str, str]] = set()
+
+    def on_change(zeroconf, service_type: str, name: str, state_change: ServiceStateChange) -> None:
+        if state_change is ServiceStateChange.Added:
+            found.add((service_type, name))
+
+    browser = AsyncServiceBrowser(aiozc.zeroconf, SERVICE_TYPES, handlers=[on_change])
+    try:
+        await asyncio.sleep(timeout)
+    finally:
+        await browser.async_cancel()
+
+    devices: dict[str, str] = {}
+    for service_type, name in sorted(found):
+        info = AsyncServiceInfo(service_type, name)
+        if not await info.async_request(aiozc.zeroconf, 1500):
+            continue
+        addresses = info.parsed_addresses(IPVersion.V4Only)
+        if not addresses:
+            continue
+        props = {k.decode(errors="replace"): (v or b"").decode(errors="replace") for k, v in info.properties.items()}
+        model = props.get("ty") or props.get("mdl") or name.split(".")[0]
+        devices.setdefault(addresses[0], f"{model} ({addresses[0]})")
+    return devices
 
 
 class LocalPrinterConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -64,6 +102,30 @@ class LocalPrinterConfigFlow(ConfigFlow, domain=DOMAIN):
         }
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Offer the devices found on the network; fall back to entering an address."""
+        if user_input is not None:
+            if user_input[CONF_HOST] == MANUAL:
+                return await self.async_step_manual()
+            return await self.async_step_manual({CONF_HOST: user_input[CONF_HOST]})
+
+        configured = {entry.data.get(CONF_HOST) for entry in self._async_current_entries()}
+        devices = {ip: label for ip, label in (await async_find_devices(self.hass)).items() if ip not in configured}
+        if not devices:
+            return await self.async_step_manual()
+        options = [{"value": ip, "label": label} for ip, label in sorted(devices.items(), key=lambda d: d[1])]
+        options.append({"value": MANUAL, "label": "Enter an address manually"})
+        return self.async_show_form(
+            step_id="user",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_HOST, default=options[0]["value"]): SelectSelector(
+                        SelectSelectorConfig(options=options, mode=SelectSelectorMode.LIST)
+                    )
+                }
+            ),
+        )
+
+    async def async_step_manual(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
             self._host = user_input[CONF_HOST].strip()
@@ -76,7 +138,7 @@ class LocalPrinterConfigFlow(ConfigFlow, domain=DOMAIN):
                 return self._create()
 
         return self.async_show_form(
-            step_id="user",
+            step_id="manual",
             data_schema=vol.Schema({vol.Required(CONF_HOST, default=self._host or ""): str}),
             errors=errors,
         )
