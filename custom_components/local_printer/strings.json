@@ -1,0 +1,142 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "title": "Local Printer & Scanner",
+        "description": "Enter the device address. Tip: give it a fixed IP (DHCP reservation) on your router.",
+        "data": {
+          "host": "Printer IP address or hostname"
+        }
+      },
+      "zeroconf_confirm": {
+        "title": "Local Printer & Scanner",
+        "description": "Add {name}? Scanner: {scanner}, printer: {printer}."
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not find an eSCL scanner or an IPP printer at this address."
+    },
+    "abort": {
+      "already_configured": "This device is already configured.",
+      "cannot_connect": "Could not find an eSCL scanner or an IPP printer at this address."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "printer_state": {
+        "name": "Printer",
+        "state": {
+          "idle": "Idle",
+          "processing": "Printing",
+          "stopped": "Stopped",
+          "unknown": "Unknown"
+        }
+      },
+      "scanner_state": {
+        "name": "Scanner",
+        "state": {
+          "idle": "Idle",
+          "processing": "Scanning",
+          "testing": "Testing",
+          "stopped": "Stopped",
+          "down": "Down",
+          "unknown": "Unknown"
+        }
+      },
+      "adf_state": {
+        "name": "Document feeder"
+      },
+      "marker": {
+        "name": "{name}"
+      },
+      "last_scan": {
+        "name": "Last scan"
+      },
+      "last_print": {
+        "name": "Last print"
+      }
+    },
+    "button": {
+      "scan": {
+        "name": "Scan"
+      },
+      "copy": {
+        "name": "Copy"
+      },
+      "print_last_scan": {
+        "name": "Print last scan"
+      },
+      "identify": {
+        "name": "Identify printer"
+      }
+    },
+    "number": {
+      "copies": {
+        "name": "Copies"
+      }
+    },
+    "select": {
+      "scan_source": {
+        "name": "Scan source",
+        "state": {
+          "platen": "Flatbed",
+          "adf": "Document feeder",
+          "adf_duplex": "Document feeder (both sides)"
+        }
+      },
+      "scan_color": {
+        "name": "Scan color",
+        "state": {
+          "color": "Color",
+          "grayscale": "Grayscale",
+          "black_white": "Black & white"
+        }
+      },
+      "scan_resolution": {
+        "name": "Scan resolution (dpi)"
+      },
+      "scan_format": {
+        "name": "Scan format",
+        "state": {
+          "pdf": "PDF",
+          "jpg": "JPG",
+          "png": "PNG"
+        }
+      },
+      "scan_area": {
+        "name": "Scan area",
+        "state": {
+          "a4": "A4",
+          "letter": "Letter",
+          "a5": "A5",
+          "legal": "Legal",
+          "max": "Whole scanner"
+        }
+      },
+      "print_paper": {
+        "name": "Paper size",
+        "state": {
+          "a4": "A4",
+          "letter": "Letter",
+          "a5": "A5",
+          "legal": "Legal"
+        }
+      },
+      "print_sides": {
+        "name": "Print sides",
+        "state": {
+          "one-sided": "One-sided",
+          "two-sided-long-edge": "Two-sided"
+        }
+      },
+      "print_color": {
+        "name": "Print color",
+        "state": {
+          "monochrome": "Black & white",
+          "color": "Color"
+        }
+      }
+    }
+  }
+}

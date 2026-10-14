@@ -1,0 +1,88 @@
+scan:
+  name: Scan
+  description: Scan a document and store it in Media → scans. Omitted fields use the current select entity values.
+  fields:
+    config_entry_id: &entry
+      name: Device
+      description: Needed only when several printers are configured.
+      selector:
+        config_entry:
+          integration: local_printer
+    source:
+      name: Source
+      selector:
+        select:
+          options: ["platen", "adf", "adf_duplex"]
+    color:
+      name: Color
+      selector:
+        select:
+          options: ["color", "grayscale", "black_white"]
+    resolution:
+      name: Resolution (dpi)
+      example: 300
+      selector:
+        number:
+          min: 75
+          max: 1200
+          mode: box
+    format:
+      name: Format
+      selector:
+        select:
+          options: ["pdf", "jpg", "png"]
+    area:
+      name: Area
+      selector:
+        select:
+          options: ["a4", "letter", "a5", "legal", "max"]
+
+print_file:
+  name: Print file
+  description: Print a PDF or image (JPG/PNG/TIFF) stored on the Home Assistant host, e.g. /media/document.pdf.
+  fields:
+    config_entry_id: *entry
+    file_path:
+      name: File path
+      required: true
+      example: /media/scans/scan.pdf
+      selector:
+        text:
+    copies: &copies
+      name: Copies
+      selector:
+        number:
+          min: 1
+          max: 999
+          mode: box
+    paper: &paper
+      name: Paper size
+      selector:
+        select:
+          options: ["a4", "letter", "a5", "legal"]
+    sides: &sides
+      name: Sides
+      selector:
+        select:
+          options: ["one-sided", "two-sided-long-edge"]
+    color: &color
+      name: Color
+      selector:
+        boolean:
+
+print_last_scan:
+  name: Print last scan
+  fields:
+    config_entry_id: *entry
+    copies: *copies
+    paper: *paper
+    sides: *sides
+    color: *color
+
+copy:
+  name: Copy
+  description: Scan the document and print it right away.
+  fields:
+    config_entry_id: *entry
+    copies: *copies
+    color: *color

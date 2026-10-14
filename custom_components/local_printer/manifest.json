@@ -1,0 +1,26 @@
+{
+  "domain": "local_printer",
+  "name": "Local Printer & Scanner (eSCL/IPP)",
+  "codeowners": [
+    "@lazarvgd"
+  ],
+  "config_flow": true,
+  "dependencies": [
+    "media_source"
+  ],
+  "documentation": "https://github.com/lazarvgd/ha-local-printer",
+  "integration_type": "device",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/lazarvgd/ha-local-printer/issues",
+  "requirements": [
+    "pypdfium2>=4.30.0",
+    "Pillow"
+  ],
+  "version": "2.0.0",
+  "zeroconf": [
+    "_uscan._tcp.local.",
+    "_uscans._tcp.local.",
+    "_ipp._tcp.local.",
+    "_ipps._tcp.local."
+  ]
+}

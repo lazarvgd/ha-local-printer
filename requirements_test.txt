@@ -1,0 +1,7 @@
+# Test-only dependencies (runtime deps: aiohttp, Pillow, pypdfium2)
+aiohttp
+Pillow
+pypdfium2
+pytest
+pytest-asyncio
+aioresponses
