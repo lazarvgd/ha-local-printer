@@ -16,6 +16,14 @@ The integration talks to the device using open standards that almost every netwo
 
 It was built for an HP LaserJet MFP M141w — a printer that refuses to scan through the HP Smart app without internet and does not accept PDF files at all — but nothing in it is HP-specific.
 
+## Why this exists
+
+I have a network multifunction printer at home. Printing over the network always worked, but **scanning did not**: the only way to scan was the vendor's mobile app, and that app only works through the vendor's cloud. When the internet connection at home was down — which happens often — scanning was simply impossible, even from a phone standing next to the printer.
+
+The typical situation: I'm in another office, someone at home needs to send me a document. They can put the paper on the glass, but they can't start the scan — that needs the app, my account and a working cloud connection.
+
+The printer, it turns out, speaks open, local protocols (eSCL for scanning, IPP for printing) all along. This integration uses them directly, so now anyone at home just puts the paper on the scanner and I press **Scan** in the Home Assistant app — from anywhere I can reach my Home Assistant — and the PDF is waiting for me. No vendor app, no vendor account, no cloud.
+
 ## Features
 
 - **Buttons:** Scan, Copy (scan + print), Print last scan, Identify printer (beep/blink)
