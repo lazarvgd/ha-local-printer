@@ -41,6 +41,9 @@ PAPER_SIZES = {
 }
 SCAN_AREA_MAX = "max"
 
+# Countries where Letter is the standard paper size; everyone else uses A4
+LETTER_COUNTRIES = {"US", "CA", "MX", "PH", "CL", "CO", "VE", "CR", "GT", "SV", "PA", "DO", "PR"}
+
 SIDES = ["one-sided", "two-sided-long-edge"]
 PRINT_COLORS = ["monochrome", "color"]
 

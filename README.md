@@ -1,5 +1,8 @@
 # Local Printer & Scanner for Home Assistant
 
+[![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=lazarvgd&repository=ha-local-printer&category=integration)
+[![Add integration](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=local_printer)
+
 Scan, print, copy and monitor network printers and multifunction devices **entirely on your local network** — no vendor app, no cloud account, no internet connection required.
 
 The integration talks to the device using open standards that almost every network printer made in the last ~10 years supports:
@@ -25,10 +28,13 @@ It was built for an HP LaserJet MFP M141w — a printer that refuses to scan thr
 - If the scanner cannot produce PDF, the integration builds the PDF from JPEG pages
 - If the printer cannot print PDF, the integration renders it to PWG or Apple raster itself
 - The device's IP address is kept up to date through zeroconf
+- Paper size defaults to A4 or Letter based on the country configured in Home Assistant
 
 ## Installation
 
 ### HACS (recommended)
+
+Click **Open in HACS** above, or:
 
 1. HACS → ⋮ → **Custom repositories**
 2. Repository: `https://github.com/lazarvgd/ha-local-printer`, type: **Integration**
@@ -40,7 +46,7 @@ Copy `custom_components/local_printer` into the `custom_components` folder of yo
 
 ## Setup
 
-Supported printers are usually **discovered automatically**: open **Settings → Devices & services** and click **Add** on the discovered device.
+Click **Add integration** above, or open **Settings → Devices & services**. Supported printers are usually **discovered automatically** there — click **Add** on the discovered device.
 
 To add a device manually: **Add integration → Local Printer & Scanner** and enter its IP address. The integration probes the usual eSCL and IPP locations (ports 80, 443, 631, 8080, 9095).
 

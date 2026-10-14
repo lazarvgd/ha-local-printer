@@ -28,6 +28,7 @@ from .const import (
     DOMAIN,
     EVENT_PRINT_DONE,
     EVENT_SCAN_DONE,
+    LETTER_COUNTRIES,
     SCAN_DIR,
     UPDATE_INTERVAL,
 )
@@ -145,6 +146,10 @@ class PrinterCoordinator(DataUpdateCoordinator[DeviceData]):
         return Path(media) / SCAN_DIR
 
     @property
+    def regional_paper(self) -> str:
+        return "letter" if (self.hass.config.country or "").upper() in LETTER_COUNTRIES else "a4"
+
+    @property
     def can_scan(self) -> bool:
         return self.scanner_caps is not None and bool(self.scanner_caps.sources)
 
@@ -167,7 +172,7 @@ class PrinterCoordinator(DataUpdateCoordinator[DeviceData]):
         if not self.can_scan and not self.can_print:
             raise UpdateFailed("Device responds neither as a scanner nor as a printer")
         if self.printer_caps:
-            self.print_paper = printer_papers(self.printer_caps)[0]
+            self.print_paper = printer_papers(self.printer_caps, self.regional_paper)[0]
             self.scan_area = self.print_paper if self.print_paper in ("a4", "letter") else "a4"
 
     async def _async_update_data(self) -> DeviceData:

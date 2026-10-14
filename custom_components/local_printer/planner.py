@@ -31,10 +31,16 @@ class PrintPlan:
     sheet_back: str = "normal"  # how to transform even raster pages for duplex printing
 
 
-def printer_papers(caps: PrinterCaps) -> list[str]:
-    """Known paper sizes the printer supports, the printer's default first."""
+def printer_papers(caps: PrinterCaps, preferred: str | None = None) -> list[str]:
+    """Known paper sizes the printer supports; `preferred` first, else the printer's default first.
+
+    Many printers ship with a factory default of Letter regardless of region, so the
+    caller can pass the size that matches the user's country.
+    """
     papers = [name for name, p in PAPER_SIZES.items() if not caps.media or p["ipp"] in caps.media]
-    default = next((n for n, p in PAPER_SIZES.items() if p["ipp"] == caps.media_default), None)
+    default = preferred if preferred in papers else next(
+        (n for n, p in PAPER_SIZES.items() if p["ipp"] == caps.media_default), None
+    )
     if default in papers:
         papers.remove(default)
         papers.insert(0, default)

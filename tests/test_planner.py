@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 
 from local_printer import const
@@ -293,3 +295,18 @@ class TestPlanScan:
         assert (plan.width, plan.height) == (2480, 3300)
         plan = ps(adf_scanner, source="adf", area="legal")
         assert (plan.width, plan.height) == (2550, 4200)
+
+
+class TestRegionalPaper:
+    """A printer with a factory default of Letter should still offer A4 first in A4 regions."""
+
+    def test_preferred_overrides_printer_default(self, m141w_printer):
+        assert m141w_printer.media_default == "na_letter_8.5x11in"
+        assert printer_papers(m141w_printer, "a4")[0] == "a4"
+
+    def test_printer_default_used_without_preference(self, m141w_printer):
+        assert printer_papers(m141w_printer)[0] == "letter"
+
+    def test_unsupported_preference_falls_back_to_printer_default(self, m141w_printer):
+        caps = dataclasses.replace(m141w_printer, media=["na_letter_8.5x11in"])
+        assert printer_papers(caps, "a4") == ["letter"]

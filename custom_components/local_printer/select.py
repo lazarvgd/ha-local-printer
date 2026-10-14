@@ -64,7 +64,7 @@ SELECTS = (
     ),
     SelectSpec("scan_format", "mdi:file-pdf-box", "scan_format", _scan_formats, lambda c: c.can_scan),
     SelectSpec("scan_area", "mdi:crop", "scan_area", lambda c: [*PAPER_SIZES, SCAN_AREA_MAX], lambda c: c.can_scan),
-    SelectSpec("print_paper", "mdi:file-outline", "print_paper", lambda c: printer_papers(c.printer_caps), lambda c: c.can_print),
+    SelectSpec("print_paper", "mdi:file-outline", "print_paper", lambda c: printer_papers(c.printer_caps, c.regional_paper), lambda c: c.can_print),
     SelectSpec(
         "print_sides",
         "mdi:book-open-page-variant",
